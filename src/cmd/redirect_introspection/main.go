@@ -24,6 +24,10 @@ func (s *RedirectServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if req.Header.Get("X-Purpose") == "preview" {
+		base += ".preview"
+	}
+
 	filename := path.Join(s.path, base)
 
 	body, err := ioutil.ReadFile(filename)
@@ -58,8 +62,21 @@ func (s *RedirectServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		code = 302
 		location = strings.TrimSpace(string(body)[4:])
 		body = nil
+	case strings.HasPrefix(string(body), "307 "):
+		code = 307
+		location = strings.TrimSpace(string(body)[4:])
+		body = nil
+	case strings.HasPrefix(string(body), "403"):
+		code = 403
+		body = nil
+	case strings.HasPrefix(string(body), "429"):
+		code = 429
+		body = nil
 	case strings.HasPrefix(string(body), "500"):
 		code = 500
+		body = nil
+	case strings.HasPrefix(string(body), "503"):
+		code = 503
 		body = nil
 	default:
 		code = 200
