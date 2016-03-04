@@ -2,13 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"net/http/httputil"
 	"os"
-	"log"
 	"path"
-	"io/ioutil"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -23,9 +23,9 @@ func (s *RedirectServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "INVALID REQUEST", http.StatusBadRequest)
 		return
 	}
-	
+
 	filename := path.Join(s.path, base)
-	
+
 	body, err := ioutil.ReadFile(filename)
 	if err != nil {
 		switch {
@@ -39,14 +39,14 @@ func (s *RedirectServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	}
-	
-	err = dumpReq(fmt.Sprintf("%s.%s", filename, time.Now().Format("2006-01-02_15-04-05-000000")), req)
+
+	err = dumpReq(fmt.Sprintf("%s.%s", filename, time.Now().Format("2006-01-02_15-04-05.000000")), req)
 	if err != nil {
-			log.Printf("%s %s", req.RequestURI, err)
-			http.Error(w, "Error", http.StatusInternalServerError)
-			return
+		log.Printf("%s %s", req.RequestURI, err)
+		http.Error(w, "Error", http.StatusInternalServerError)
+		return
 	}
-	
+
 	var location string
 	var code int
 	switch {
@@ -58,6 +58,9 @@ func (s *RedirectServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		code = 302
 		location = strings.TrimSpace(string(body)[4:])
 		body = nil
+	case strings.HasPrefix(string(body), "500"):
+		code = 500
+		body = nil
 	default:
 		code = 200
 	}
@@ -67,6 +70,9 @@ func (s *RedirectServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	switch code {
 	case 301, 302:
 		http.Redirect(w, req, location, code)
+		return
+	case 500:
+		http.Error(w, "Error", http.StatusInternalServerError)
 		return
 	}
 	// assume this is text/html
@@ -95,18 +101,18 @@ func main() {
 	addr := flag.String("http", ":http", "address to listen on")
 	path := flag.String("path", "", "base path for redirect data")
 	flag.Parse()
-	
+
 	if *path == "" {
 		log.Fatalf("--path required")
 	}
-	
+
 	s := &http.Server{
-		Addr:*addr,
+		Addr:    *addr,
 		Handler: &RedirectServer{*path},
 	}
 	err := s.ListenAndServe()
 	if err != nil {
 		log.Fatalf("%s", err)
 	}
-	
+
 }
