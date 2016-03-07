@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +10,7 @@ import (
 	"net/http/httputil"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -52,48 +54,49 @@ func (s *RedirectServer) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var location string
-	var code int
-	switch {
-	case strings.HasPrefix(string(body), "301 "):
-		code = 301
-		location = strings.TrimSpace(string(body)[4:])
-		body = nil
-	case strings.HasPrefix(string(body), "302 "):
-		code = 302
-		location = strings.TrimSpace(string(body)[4:])
-		body = nil
-	case strings.HasPrefix(string(body), "307 "):
-		code = 307
-		location = strings.TrimSpace(string(body)[4:])
-		body = nil
-	case strings.HasPrefix(string(body), "403"):
-		code = 403
-		body = nil
-	case strings.HasPrefix(string(body), "429"):
-		code = 429
-		body = nil
-	case strings.HasPrefix(string(body), "500"):
-		code = 500
-		body = nil
-	case strings.HasPrefix(string(body), "503"):
-		code = 503
-		body = nil
-	default:
+	code, err := strconv.Atoi(string(body[:3]))
+	if err != nil {
 		code = 200
+	}
+
+	// http://racksburg.com/choosing-an-http-status-code/
+	switch code {
+	case 301, 302, 303, 307, 308:
+		location = strings.TrimSpace(string(body)[4:])
+		body = nil
+	case 300, 304, 305, 306:
+		body = bytes.TrimSpace(body[3:])
+		// use body (if any)
+	case 200:
+		// do nothing. use body (if any)
+	case 201, 202, 203, 204, 205, 207, 208, 226:
+		body = bytes.TrimSpace(body[3:])
+		// use body (if any)
+	case 400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410, 411, 412, 413, 414, 415, 416, 417, 418, 421, 422, 423, 426, 428, 429, 431:
+		body = bytes.TrimSpace(body[3:])
+	case 500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511:
+		body = bytes.TrimSpace(body[3:])
+	default:
+		log.Printf("%d unknown response code", code)
+		http.Error(w, "Error", http.StatusInternalServerError)
 	}
 
 	log.Printf("%d %s %q %q", code, req.Method, req.RequestURI, req.UserAgent())
 
 	switch code {
-	case 301, 302:
+	case 301, 302, 303, 307, 308:
 		http.Redirect(w, req, location, code)
 		return
-	case 500:
-		http.Error(w, "Error", http.StatusInternalServerError)
-		return
+	case 500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511:
+		if body == nil {
+			http.Error(w, "Error", code)
+			return
+		}
 	}
-	// assume this is text/html
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if body != nil {
+		// assume this is text/html
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	}
 	w.WriteHeader(code)
 	if req.Method == "GET" {
 		w.Write(body)
